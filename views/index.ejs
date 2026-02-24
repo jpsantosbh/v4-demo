@@ -22,45 +22,113 @@
 
     <div id="status" class="text-center text-sm text-gray-500">Connecting client…</div>
 
-    <div class="space-y-3">
+    <!-- Idle: dial panel -->
+    <div id="dial-panel" class="space-y-3">
       <input
         id="destination"
         type="text"
-        placeholder="/public/room-name or /pstn/+15551234567"
+        placeholder="/public/room or /pstn/+15551234567"
         class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
+      <button
+        id="callBtn"
+        disabled
+        class="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-semibold py-2 rounded-lg transition"
+      >Call</button>
+    </div>
+
+    <!-- Active: call panel (hidden by default) -->
+    <div id="call-panel" class="space-y-4 hidden">
+      <div class="text-center">
+        <p id="call-dest" class="text-lg font-medium text-gray-700"></p>
+        <p id="call-status" class="text-sm text-gray-500">Calling…</p>
+        <p id="call-duration" class="text-3xl font-mono text-gray-800 mt-2">0:00</p>
+      </div>
+
       <div class="flex gap-3">
         <button
-          id="callBtn"
-          disabled
-          class="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-semibold py-2 rounded-lg transition"
-        >Call</button>
+          id="muteBtn"
+          class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 rounded-lg transition"
+        >Mute</button>
         <button
           id="hangupBtn"
-          disabled
-          class="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-semibold py-2 rounded-lg transition"
+          class="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 rounded-lg transition"
         >Hang Up</button>
       </div>
     </div>
-
-    <video id="remoteVideo" autoplay playsinline class="w-full rounded-lg bg-black hidden"></video>
-    <video id="localVideo" autoplay playsinline muted class="w-32 rounded-lg bg-black hidden"></video>
   </div>
 
   <script>
     window.__SW_TOKEN__ = "<%= token %>";
 
     (async function () {
-      const statusEl    = document.getElementById('status');
-      const callBtn     = document.getElementById('callBtn');
-      const hangupBtn   = document.getElementById('hangupBtn');
-      const destInput   = document.getElementById('destination');
-      const remoteVideo = document.getElementById('remoteVideo');
-      const localVideo  = document.getElementById('localVideo');
+      const statusEl   = document.getElementById('status');
+      const callBtn    = document.getElementById('callBtn');
+      const hangupBtn  = document.getElementById('hangupBtn');
+      const muteBtn    = document.getElementById('muteBtn');
+      const destInput  = document.getElementById('destination');
+      const dialPanel  = document.getElementById('dial-panel');
+      const callPanel  = document.getElementById('call-panel');
+      const callDest   = document.getElementById('call-dest');
+      const callStatusEl = document.getElementById('call-status');
+      const callDur    = document.getElementById('call-duration');
 
       let currentCall = null;
+      let durationInterval = null;
+      let callStartTime = null;
 
-      // --- Initialise client ---
+      const STATUS_LABELS = {
+        trying:        'Calling…',
+        ringing:       'Ringing…',
+        connecting:    'Connecting…',
+        connected:     'Connected',
+        disconnecting: 'Ending call…',
+        disconnected:  'Call ended',
+      };
+
+      // --- UI helpers ---
+
+      function showCallPanel(dest) {
+        callDest.textContent     = dest;
+        callStatusEl.textContent = 'Calling…';
+        callDur.textContent      = '0:00';
+        muteBtn.textContent      = 'Mute';
+        muteBtn.className        = 'flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 rounded-lg transition';
+        dialPanel.classList.add('hidden');
+        callPanel.classList.remove('hidden');
+        hangupBtn.disabled = false;
+      }
+
+      function resetToIdle() {
+        stopDurationTimer();
+        callPanel.classList.add('hidden');
+        dialPanel.classList.remove('hidden');
+        callBtn.disabled   = false;
+        hangupBtn.disabled = false;
+        currentCall = null;
+        statusEl.textContent = 'Ready — enter a destination and press Call';
+        statusEl.className   = 'text-center text-sm text-green-600';
+      }
+
+      function startDurationTimer() {
+        callStartTime = Date.now();
+        durationInterval = setInterval(() => {
+          const elapsed = Math.floor((Date.now() - callStartTime) / 1000);
+          const mins = Math.floor(elapsed / 60);
+          const secs = elapsed % 60;
+          callDur.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+        }, 1000);
+      }
+
+      function stopDurationTimer() {
+        if (durationInterval) {
+          clearInterval(durationInterval);
+          durationInterval = null;
+        }
+      }
+
+      // --- Client init ---
+
       const credentials = new SignalWire.StaticCredentialProvider({
         token: window.__SW_TOKEN__,
       });
@@ -81,86 +149,79 @@
       });
 
       // --- Call ---
+
       callBtn.addEventListener('click', async () => {
         const dest = destInput.value.trim();
         if (!dest) return;
 
-        callBtn.disabled   = true;
-        hangupBtn.disabled = false;
-        statusEl.textContent = 'Requesting media permissions…';
+        callBtn.disabled = true;
+        statusEl.textContent = 'Requesting microphone…';
         statusEl.className   = 'text-center text-sm text-yellow-600';
 
-        // Request permissions in the click handler (user gesture) so the
-        // browser shows the allow/deny prompt. Attempt audio+video first,
-        // fall back to audio-only if the camera is unavailable.
-        let useVideo = true;
+        // Request mic permission in click handler (user gesture)
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
           stream.getTracks().forEach((t) => t.stop());
-        } catch {
-          useVideo = false;
-          try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            stream.getTracks().forEach((t) => t.stop());
-          } catch (permErr) {
-            console.error('Media permission denied:', permErr);
-            statusEl.textContent = 'Microphone access denied';
-            statusEl.className   = 'text-center text-sm text-red-600';
-            resetUI();
-            return;
-          }
+        } catch (permErr) {
+          console.error('Microphone permission denied:', permErr);
+          statusEl.textContent = 'Microphone access denied';
+          statusEl.className   = 'text-center text-sm text-red-600';
+          callBtn.disabled = false;
+          return;
         }
 
         statusEl.textContent = 'Dialling…';
 
         try {
-          currentCall = await client.dial(dest, { audio: true, video: useVideo });
+          currentCall = await client.dial(dest, { audio: true, video: false });
+          showCallPanel(dest);
 
+          // Subscribe to call status — handles ALL transitions including remote hangup
           currentCall.status$.subscribe((s) => {
-            statusEl.textContent = 'Call status: ' + s;
-            if (s === 'disconnected') {
-              resetUI();
+            callStatusEl.textContent = STATUS_LABELS[s] || s;
+
+            if (s === 'connected') {
+              startDurationTimer();
+            }
+
+            if (s === 'disconnected' || s === 'destroyed') {
+              resetToIdle();
             }
           });
 
-          currentCall.remoteStream$.subscribe((stream) => {
-            if (stream) {
-              remoteVideo.srcObject = stream;
-              remoteVideo.classList.remove('hidden');
-            }
-          });
-
-          currentCall.localStream$.subscribe((stream) => {
-            if (stream) {
-              localVideo.srcObject = stream;
-              localVideo.classList.remove('hidden');
+          // Subscribe to mute state reactively
+          currentCall.self.audioMuted$.subscribe((muted) => {
+            muteBtn.textContent = muted ? 'Unmute' : 'Mute';
+            if (muted) {
+              muteBtn.className = 'flex-1 bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2 rounded-lg transition';
+            } else {
+              muteBtn.className = 'flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 rounded-lg transition';
             }
           });
         } catch (err) {
           console.error('Dial failed:', err);
           statusEl.textContent = 'Dial failed — check console';
           statusEl.className   = 'text-center text-sm text-red-600';
-          resetUI();
+          callBtn.disabled = false;
         }
       });
 
       // --- Hang up ---
-      hangupBtn.addEventListener('click', async () => {
+
+      hangupBtn.addEventListener('click', () => {
         if (currentCall) {
-          await currentCall.hangup();
-          currentCall = null;
+          hangupBtn.disabled = true; // prevent double-click
+          currentCall.hangup();
         }
       });
 
-      function resetUI() {
-        callBtn.disabled   = false;
-        hangupBtn.disabled = true;
-        remoteVideo.classList.add('hidden');
-        localVideo.classList.add('hidden');
-        currentCall = null;
-        statusEl.textContent = 'Ready — enter a destination and press Call';
-        statusEl.className   = 'text-center text-sm text-green-600';
-      }
+      // --- Mute ---
+
+      muteBtn.addEventListener('click', () => {
+        if (currentCall) {
+          currentCall.self.toggleMute();
+        }
+      });
     })();
   </script>
 </body>
