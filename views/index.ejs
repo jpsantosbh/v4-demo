@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>v4 Demo</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script>
+    window.node_crypto = new Proxy(crypto, {
+      get(target, prop) {
+        const val = target[prop];
+        return typeof val === 'function' ? val.bind(target) : val;
+      }
+    });
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@signalwire/js@4.0.0-beta.0/dist/browser.umd.js"></script>
+</head>
+<body class="flex items-center justify-center min-h-screen bg-gray-100">
+
+  <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md space-y-6">
+    <h1 class="text-2xl font-bold text-gray-800 text-center">SignalWire v4 Demo</h1>
+
+    <div id="status" class="text-center text-sm text-gray-500">Connecting client…</div>
+
+    <div class="space-y-3">
+      <input
+        id="destination"
+        type="text"
+        placeholder="/public/room-name or /pstn/+15551234567"
+        class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+      <div class="flex gap-3">
+        <button
+          id="callBtn"
+          disabled
+          class="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-semibold py-2 rounded-lg transition"
+        >Call</button>
+        <button
+          id="hangupBtn"
+          disabled
+          class="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-semibold py-2 rounded-lg transition"
+        >Hang Up</button>
+      </div>
+    </div>
+
+    <video id="remoteVideo" autoplay playsinline class="w-full rounded-lg bg-black hidden"></video>
+    <video id="localVideo" autoplay playsinline muted class="w-32 rounded-lg bg-black hidden"></video>
+  </div>
+
+  <script>
+    window.__SW_TOKEN__ = "<%= token %>";
+
+    (async function () {
+      const statusEl    = document.getElementById('status');
+      const callBtn     = document.getElementById('callBtn');
+      const hangupBtn   = document.getElementById('hangupBtn');
+      const destInput   = document.getElementById('destination');
+      const remoteVideo = document.getElementById('remoteVideo');
+      const localVideo  = document.getElementById('localVideo');
+
+      let currentCall = null;
+
+      // --- Initialise client ---
+      const credentials = new SignalWire.StaticCredentialProvider({
+        token: window.__SW_TOKEN__,
+      });
+      const client = new SignalWire.SignalWire(credentials);
+
+      client.ready$.subscribe((ready) => {
+        if (ready) {
+          statusEl.textContent = 'Ready — enter a destination and press Call';
+          statusEl.className   = 'text-center text-sm text-green-600';
+          callBtn.disabled     = false;
+        }
+      });
+
+      client.errors$.subscribe((err) => {
+        console.error('Client error:', err);
+        statusEl.textContent = 'Client error — check console';
+        statusEl.className   = 'text-center text-sm text-red-600';
+      });
+
+      // --- Call ---
+      callBtn.addEventListener('click', async () => {
+        const dest = destInput.value.trim();
+        if (!dest) return;
+
+        callBtn.disabled   = true;
+        hangupBtn.disabled = false;
+        statusEl.textContent = 'Requesting media permissions…';
+        statusEl.className   = 'text-center text-sm text-yellow-600';
+
+        // Request permissions in the click handler (user gesture) so the
+        // browser shows the allow/deny prompt. Attempt audio+video first,
+        // fall back to audio-only if the camera is unavailable.
+        let useVideo = true;
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          stream.getTracks().forEach((t) => t.stop());
+        } catch {
+          useVideo = false;
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach((t) => t.stop());
+          } catch (permErr) {
+            console.error('Media permission denied:', permErr);
+            statusEl.textContent = 'Microphone access denied';
+            statusEl.className   = 'text-center text-sm text-red-600';
+            resetUI();
+            return;
+          }
+        }
+
+        statusEl.textContent = 'Dialling…';
+
+        try {
+          currentCall = await client.dial(dest, { audio: true, video: useVideo });
+
+          currentCall.status$.subscribe((s) => {
+            statusEl.textContent = 'Call status: ' + s;
+            if (s === 'disconnected') {
+              resetUI();
+            }
+          });
+
+          currentCall.remoteStream$.subscribe((stream) => {
+            if (stream) {
+              remoteVideo.srcObject = stream;
+              remoteVideo.classList.remove('hidden');
+            }
+          });
+
+          currentCall.localStream$.subscribe((stream) => {
+            if (stream) {
+              localVideo.srcObject = stream;
+              localVideo.classList.remove('hidden');
+            }
+          });
+        } catch (err) {
+          console.error('Dial failed:', err);
+          statusEl.textContent = 'Dial failed — check console';
+          statusEl.className   = 'text-center text-sm text-red-600';
+          resetUI();
+        }
+      });
+
+      // --- Hang up ---
+      hangupBtn.addEventListener('click', async () => {
+        if (currentCall) {
+          await currentCall.hangup();
+          currentCall = null;
+        }
+      });
+
+      function resetUI() {
+        callBtn.disabled   = false;
+        hangupBtn.disabled = true;
+        remoteVideo.classList.add('hidden');
+        localVideo.classList.add('hidden');
+        currentCall = null;
+        statusEl.textContent = 'Ready — enter a destination and press Call';
+        statusEl.className   = 'text-center text-sm text-green-600';
+      }
+    })();
+  </script>
+</body>
+</html>
