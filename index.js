@@ -41,6 +41,29 @@ app.get("/", async (req, res) => {
   }
 });
 
+app.post("/conference", (req, res) => {
+  res.json({
+    version: "1.0.0",
+    sections: {
+      main: [
+        {
+          "answer": {}
+        },
+        {
+          "play": {
+            "url": "say:Joining conference now."
+          }
+        },
+        {
+          join_conference: {
+            name: "demo_conference",
+          },
+        },
+      ],
+    },
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Listening on http://localhost:${PORT}`);
 });
