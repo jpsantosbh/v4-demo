@@ -27,6 +27,7 @@
       <input
         id="destination"
         type="text"
+        value="/private/test-endpoint"
         placeholder="/public/room or /pstn/+15551234567"
         class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
@@ -202,7 +203,8 @@
           console.error('Dial failed:', err);
           statusEl.textContent = 'Dial failed — check console';
           statusEl.className   = 'text-center text-sm text-red-600';
-          callBtn.disabled = false;
+          currentCall = null;
+          resetToIdle();
         }
       });
 
