@@ -27,7 +27,7 @@
       <input
         id="destination"
         type="text"
-        value="/public/go-to-conference"
+        value="<%= defaultDestination %>"
         placeholder="/public/room"
         class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
@@ -56,6 +56,30 @@
           class="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 rounded-lg transition"
         >Hang Up</button>
       </div>
+
+      <!-- Invite external number -->
+      <div class="border-t pt-4 space-y-2">
+        <p class="text-sm font-medium text-gray-600">Invite to conference</p>
+        <input
+          id="inviteNumber"
+          type="text"
+          value="+18004444444"
+          placeholder="+1XXXXXXXXXX"
+          class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <div class="flex gap-3">
+          <button
+            id="inviteBtn"
+            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg transition"
+          >Invite</button>
+          <button
+            id="hangupInviteBtn"
+            disabled
+            class="flex-1 bg-gray-400 text-white font-semibold py-2 rounded-lg transition"
+          >Hang Up Invite</button>
+        </div>
+        <p id="invite-status" class="text-xs text-gray-400 text-center"></p>
+      </div>
     </div>
   </div>
   <video id="localVideo" autoplay muted playsinline style="width: 1px; height: 1px"></video>
@@ -76,9 +100,15 @@
       const callStatusEl = document.getElementById('call-status');
       const callDur    = document.getElementById('call-duration');
 
+      const inviteBtn      = document.getElementById('inviteBtn');
+      const hangupInvBtn   = document.getElementById('hangupInviteBtn');
+      const inviteInput    = document.getElementById('inviteNumber');
+      const inviteStatusEl = document.getElementById('invite-status');
+
       let currentCall = null;
       let durationInterval = null;
       let callStartTime = null;
+      let invitedCallId = null;
 
       const STATUS_LABELS = {
         trying:        'Calling…',
@@ -102,8 +132,17 @@
         hangupBtn.disabled = false;
       }
 
+      function resetInviteState() {
+        invitedCallId = null;
+        inviteBtn.disabled = false;
+        hangupInvBtn.disabled = true;
+        hangupInvBtn.className = 'flex-1 bg-gray-400 text-white font-semibold py-2 rounded-lg transition';
+        inviteStatusEl.textContent = '';
+      }
+
       function resetToIdle() {
         stopDurationTimer();
+        resetInviteState();
         callPanel.classList.add('hidden');
         dialPanel.classList.remove('hidden');
         callBtn.disabled   = false;
@@ -241,6 +280,71 @@
       muteBtn.addEventListener('click', () => {
         if (currentCall && currentCall.self) {
           currentCall.self.toggleMute();
+        }
+      });
+
+      // --- Invite external number ---
+
+      inviteBtn.addEventListener('click', async () => {
+        const to = inviteInput.value.trim();
+        if (!to) return;
+
+        inviteBtn.disabled = true;
+        inviteStatusEl.textContent = 'Calling…';
+        inviteStatusEl.className = 'text-xs text-yellow-600 text-center';
+
+        try {
+          const resp = await fetch('/invite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to }),
+          });
+          const data = await resp.json();
+
+          if (!resp.ok) {
+            throw new Error(data.error || 'Invite failed');
+          }
+
+          invitedCallId = data.callId;
+          inviteStatusEl.textContent = `Invited — ID: ${invitedCallId}`;
+          inviteStatusEl.className = 'text-xs text-green-600 text-center';
+          hangupInvBtn.disabled = false;
+          hangupInvBtn.className = 'flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 rounded-lg transition';
+        } catch (err) {
+          console.error('Invite error:', err);
+          inviteStatusEl.textContent = err.message;
+          inviteStatusEl.className = 'text-xs text-red-600 text-center';
+          inviteBtn.disabled = false;
+        }
+      });
+
+      hangupInvBtn.addEventListener('click', async () => {
+        if (!invitedCallId) return;
+
+        hangupInvBtn.disabled = true;
+        inviteStatusEl.textContent = 'Hanging up…';
+        inviteStatusEl.className = 'text-xs text-yellow-600 text-center';
+
+        try {
+          const resp = await fetch('/hangup-invite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ callId: invitedCallId }),
+          });
+
+          if (!resp.ok) {
+            const data = await resp.json();
+            throw new Error(data.error || 'Hangup failed');
+          }
+
+          inviteStatusEl.textContent = 'Invite ended';
+          inviteStatusEl.className = 'text-xs text-gray-500 text-center';
+          resetInviteState();
+        } catch (err) {
+          console.error('Hangup invite error:', err);
+          inviteStatusEl.textContent = err.message;
+          inviteStatusEl.className = 'text-xs text-red-600 text-center';
+          hangupInvBtn.disabled = false;
         }
       });
     })();
