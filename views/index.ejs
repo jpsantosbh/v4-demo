@@ -58,6 +58,8 @@
       </div>
     </div>
   </div>
+  <video id="localVideo" autoplay muted playsinline style="width: 1px; height: 1px"></video>
+  <video id="remoteVideo" autoplay playsinline style="width: 1px; height: 1px"></video>
 
   <script>
     window.__SW_TOKEN__ = "<%= token %>";
@@ -190,13 +192,30 @@
             }
           });
 
-          // Subscribe to mute state reactively
-          currentCall.self.audioMuted$.subscribe((muted) => {
-            muteBtn.textContent = muted ? 'Unmute' : 'Mute';
-            if (muted) {
-              muteBtn.className = 'flex-1 bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2 rounded-lg transition';
-            } else {
-              muteBtn.className = 'flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 rounded-lg transition';
+          currentCall.remoteStream$.subscribe((stream) => {
+            if (stream) {
+              document.getElementById("remoteVideo").srcObject = stream
+            }
+          });
+
+          currentCall.localStream$.subscribe((stream) => {
+            document.getElementById('localVideo').srcObject = stream;
+          });
+
+          // Subscribe to mute state reactively via self$ (self is undefined until member events arrive)
+          let muteSub;
+          currentCall.self$.subscribe((self) => {
+            if (!self) return;
+            if (muteSub) muteSub.unsubscribe();
+            if (self.audioMuted$) {
+              muteSub = self.audioMuted$.subscribe((muted) => {
+                muteBtn.textContent = muted ? 'Unmute' : 'Mute';
+                if (muted) {
+                  muteBtn.className = 'flex-1 bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2 rounded-lg transition';
+                } else {
+                  muteBtn.className = 'flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 rounded-lg transition';
+                }
+              });
             }
           });
         } catch (err) {
@@ -220,7 +239,7 @@
       // --- Mute ---
 
       muteBtn.addEventListener('click', () => {
-        if (currentCall) {
+        if (currentCall && currentCall.self) {
           currentCall.self.toggleMute();
         }
       });
