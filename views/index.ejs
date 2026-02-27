@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -15,6 +16,7 @@
   </script>
   <script src="https://cdn.jsdelivr.net/npm/@signalwire/js@4.0.0-beta.0/dist/browser.umd.js"></script>
 </head>
+
 <body class="flex items-center justify-center min-h-screen bg-gray-100">
 
   <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md space-y-6">
@@ -24,18 +26,10 @@
 
     <!-- Idle: dial panel -->
     <div id="dial-panel" class="space-y-3">
-      <input
-        id="destination"
-        type="text"
-        value="<%= defaultDestination %>"
-        placeholder="/public/room"
-        class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-      <button
-        id="callBtn"
-        disabled
-        class="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-semibold py-2 rounded-lg transition"
-      >Call</button>
+      <input id="destination" type="text" value="<%= defaultDestination %>" placeholder="/public/room"
+        class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      <button id="callBtn" disabled
+        class="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-semibold py-2 rounded-lg transition">Call</button>
     </div>
 
     <!-- Active: call panel (hidden by default) -->
@@ -47,36 +41,23 @@
       </div>
 
       <div class="flex gap-3">
-        <button
-          id="muteBtn"
-          class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 rounded-lg transition"
-        >Mute</button>
-        <button
-          id="hangupBtn"
-          class="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 rounded-lg transition"
-        >Hang Up</button>
+        <button id="muteBtn"
+          class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 rounded-lg transition">Mute</button>
+        <button id="hangupBtn"
+          class="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 rounded-lg transition">Hang
+          Up</button>
       </div>
 
       <!-- Invite external number -->
       <div class="border-t pt-4 space-y-2">
         <p class="text-sm font-medium text-gray-600">Invite to conference</p>
-        <input
-          id="inviteNumber"
-          type="text"
-          value="+18004444444"
-          placeholder="+1XXXXXXXXXX"
-          class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+        <input id="inviteNumber" type="text" value="+18004444444" placeholder="+1XXXXXXXXXX"
+          class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
         <div class="flex gap-3">
-          <button
-            id="inviteBtn"
-            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg transition"
-          >Invite</button>
-          <button
-            id="hangupInviteBtn"
-            disabled
-            class="flex-1 bg-gray-400 text-white font-semibold py-2 rounded-lg transition"
-          >Hang Up Invite</button>
+          <button id="inviteBtn"
+            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg transition">Invite</button>
+          <button id="hangupInviteBtn" disabled
+            class="flex-1 bg-gray-400 text-white font-semibold py-2 rounded-lg transition">Hang Up Invite</button>
         </div>
         <p id="invite-status" class="text-xs text-gray-400 text-center"></p>
       </div>
@@ -86,23 +67,66 @@
   <video id="remoteVideo" autoplay playsinline style="width: 1px; height: 1px"></video>
 
   <script>
-    window.__SW_TOKEN__ = "<%= token %>";
-
     (async function () {
-      const statusEl   = document.getElementById('status');
-      const callBtn    = document.getElementById('callBtn');
-      const hangupBtn  = document.getElementById('hangupBtn');
-      const muteBtn    = document.getElementById('muteBtn');
-      const destInput  = document.getElementById('destination');
-      const dialPanel  = document.getElementById('dial-panel');
-      const callPanel  = document.getElementById('call-panel');
-      const callDest   = document.getElementById('call-dest');
-      const callStatusEl = document.getElementById('call-status');
-      const callDur    = document.getElementById('call-duration');
 
-      const inviteBtn      = document.getElementById('inviteBtn');
-      const hangupInvBtn   = document.getElementById('hangupInviteBtn');
-      const inviteInput    = document.getElementById('inviteNumber');
+
+      // --- signalwire client auth helpers ---
+
+      const TOKEN_EXPIRY_MS = 3600 * 1000;
+
+      async function fetchSubscriberToken() {
+        const response = await fetch('/token', {
+          method: 'GET',
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Subscriber auth failed: ${response.status} — ${errorText}`);
+        }
+
+        const data = await response.json();
+        return data.token;
+      }
+
+      class SubscriberCredentialProvider {
+        constructor() {}
+
+        /**
+         * Called once by the SDK during client initialization.
+         * Fetches a fresh SAT and returns it to the SDK for initial authentication.
+         *
+         * @returns {Promise<import('@signalwire/js').SDKCredential>}
+         */
+        async authenticate() {
+          const token = await fetchSubscriberToken();
+          return { token, expiry_at: Date.now() + TOKEN_EXPIRY_MS };
+        }
+
+        /**
+         * Called automatically by the SDK before the current token expires.
+         * Re-fetches a fresh SAT using the same credentials.
+         *
+         * @returns {Promise<import('@signalwire/js').SDKCredential>}
+         */
+        async refresh() {
+          return this.authenticate();
+        }
+      }
+
+      const statusEl = document.getElementById('status');
+      const callBtn = document.getElementById('callBtn');
+      const hangupBtn = document.getElementById('hangupBtn');
+      const muteBtn = document.getElementById('muteBtn');
+      const destInput = document.getElementById('destination');
+      const dialPanel = document.getElementById('dial-panel');
+      const callPanel = document.getElementById('call-panel');
+      const callDest = document.getElementById('call-dest');
+      const callStatusEl = document.getElementById('call-status');
+      const callDur = document.getElementById('call-duration');
+
+      const inviteBtn = document.getElementById('inviteBtn');
+      const hangupInvBtn = document.getElementById('hangupInviteBtn');
+      const inviteInput = document.getElementById('inviteNumber');
       const inviteStatusEl = document.getElementById('invite-status');
 
       let currentCall = null;
@@ -111,22 +135,22 @@
       let invitedCallId = null;
 
       const STATUS_LABELS = {
-        trying:        'Calling…',
-        ringing:       'Ringing…',
-        connecting:    'Connecting…',
-        connected:     'Connected',
+        trying: 'Calling…',
+        ringing: 'Ringing…',
+        connecting: 'Connecting…',
+        connected: 'Connected',
         disconnecting: 'Ending call…',
-        disconnected:  'Call ended',
+        disconnected: 'Call ended',
       };
 
       // --- UI helpers ---
 
       function showCallPanel(dest) {
-        callDest.textContent     = dest;
+        callDest.textContent = dest;
         callStatusEl.textContent = 'Calling…';
-        callDur.textContent      = '0:00';
-        muteBtn.textContent      = 'Mute';
-        muteBtn.className        = 'flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 rounded-lg transition';
+        callDur.textContent = '0:00';
+        muteBtn.textContent = 'Mute';
+        muteBtn.className = 'flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 rounded-lg transition';
         dialPanel.classList.add('hidden');
         callPanel.classList.remove('hidden');
         hangupBtn.disabled = false;
@@ -145,11 +169,11 @@
         resetInviteState();
         callPanel.classList.add('hidden');
         dialPanel.classList.remove('hidden');
-        callBtn.disabled   = false;
+        callBtn.disabled = false;
         hangupBtn.disabled = false;
         currentCall = null;
         statusEl.textContent = 'Ready — enter a destination and press Call';
-        statusEl.className   = 'text-center text-sm text-green-600';
+        statusEl.className = 'text-center text-sm text-green-600';
       }
 
       function startDurationTimer() {
@@ -171,23 +195,21 @@
 
       // --- Client init ---
 
-      const credentials = new SignalWire.StaticCredentialProvider({
-        token: window.__SW_TOKEN__,
-      });
+      const credentials = new SubscriberCredentialProvider();
       const client = new SignalWire.SignalWire(credentials);
 
       client.ready$.subscribe((ready) => {
         if (ready) {
           statusEl.textContent = 'Ready — enter a destination and press Call';
-          statusEl.className   = 'text-center text-sm text-green-600';
-          callBtn.disabled     = false;
+          statusEl.className = 'text-center text-sm text-green-600';
+          callBtn.disabled = false;
         }
       });
 
       client.errors$.subscribe((err) => {
         console.error('Client error:', err);
         statusEl.textContent = 'Client error — check console';
-        statusEl.className   = 'text-center text-sm text-red-600';
+        statusEl.className = 'text-center text-sm text-red-600';
       });
 
       // --- Call ---
@@ -198,7 +220,7 @@
 
         callBtn.disabled = true;
         statusEl.textContent = 'Requesting microphone…';
-        statusEl.className   = 'text-center text-sm text-yellow-600';
+        statusEl.className = 'text-center text-sm text-yellow-600';
 
         // Request mic permission in click handler (user gesture)
         try {
@@ -207,7 +229,7 @@
         } catch (permErr) {
           console.error('Microphone permission denied:', permErr);
           statusEl.textContent = 'Microphone access denied';
-          statusEl.className   = 'text-center text-sm text-red-600';
+          statusEl.className = 'text-center text-sm text-red-600';
           callBtn.disabled = false;
           return;
         }
@@ -260,7 +282,7 @@
         } catch (err) {
           console.error('Dial failed:', err);
           statusEl.textContent = 'Dial failed — check console';
-          statusEl.className   = 'text-center text-sm text-red-600';
+          statusEl.className = 'text-center text-sm text-red-600';
           currentCall = null;
           resetToIdle();
         }
@@ -350,4 +372,5 @@
     })();
   </script>
 </body>
+
 </html>

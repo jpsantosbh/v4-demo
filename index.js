@@ -35,13 +35,22 @@ async function getSubscriberToken() {
   return res.json();
 }
 
-app.get("/", async (req, res) => {
+app.get("/", (req, res) => {
   try {
-    const tokenData = await getSubscriberToken();
-    res.render("index", { token: tokenData.token, defaultDestination: DEFAULT_DESTINATION });
+    res.render("index", { defaultDestination: DEFAULT_DESTINATION });
   } catch (err) {
     console.error(err);
     res.status(500).send("Failed to obtain subscriber token");
+  }
+});
+
+app.get("/token", async (req, res) => {
+  try {
+    const tokenData = await getSubscriberToken();
+    res.json({ token: tokenData.token });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to obtain subscriber token" });
   }
 });
 
