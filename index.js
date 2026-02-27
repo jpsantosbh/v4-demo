@@ -61,16 +61,16 @@ app.post("/conference", (req, res) => {
     conferenceParams.end_on_exit = true;
   }
 
-  res.json({
+  res.type("application/json").send(JSON.stringify({
     version: "1.0.0",
     sections: {
       main: [
         {
-          "answer": {}
+          answer: {}
         },
         {
-          "play": {
-            "url": "say:Joining conference now."
+          play: {
+            url: "say:Joining conference now."
           }
         },
         {
@@ -78,7 +78,7 @@ app.post("/conference", (req, res) => {
         },
       ],
     },
-  });
+  }));
 });
 
 function callingApiHeaders() {
